@@ -51,6 +51,8 @@ def main():
         node.socket = paramiko.Transport(node.socket)
         node.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
 
+# type ssh-keygen -t rsa -b 4096 -f my-secret-key
+        
         # Busca um destino aleatório
         if len(nodes) > 1:
             destination = nodes[random.randint(0, len(nodes) - 1)]
