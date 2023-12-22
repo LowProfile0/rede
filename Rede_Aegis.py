@@ -1,93 +1,111 @@
 import socket
 import paramiko
 import random
-
+import struct
+import logging
 from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.ciphers import Cipher
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-class Node:
+from aegis.core import Node, Message
+
+# Configuração do logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+console_handler = logging.StreamHandler()
+logger.addHandler(console_handler)
+
+class Node(Node):
+
     def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
-        self.connections = []
-        self.proxy_list = []  # Initialize empty proxy list
-        self.use_proxy = True  # Enable proxy usage by default
+        super().__init__(ip, port)
+        self.logger = logger
+        self.cipher = Cipher(algorithms.AES(self.get_shared_key()), modes.GCM(self.get_iv()))
 
-        self.hops = []
-
-    def load_proxy_list(self, filename):
-        with open(filename, "r") as f:
-            self.proxy_list = f.readlines()
-            self.proxy_list = [line.strip() for line in self.proxy_list]
-
-    def send(self, data):
-        for conn in self.connections:
-            conn.send(data)
-
-    def receive(self, data):
-        for conn in self.connections:
-            data = conn.receive()
-            if data:
-                return data
-        return None
-
-    def select_random_proxy(self):
-        return random.choice(self.proxy_list)
+    def disconnect(self):
+        if hasattr(self, 'socket') and self.socket:
+            self.socket.close()
+            self.logger.info("Desconectado com sucesso")
 
     def connect(self):
         if self.proxy_list:
             proxy = self.select_random_proxy()
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((proxy, 80))  # Assuming proxies listen on port 80
-            self.socket = paramiko.Transport(sock)
+            self.logger.info("Conectando-se ao proxy: %s", proxy)
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                self.socket.connect((proxy, 80))
+            except socket.error as e:
+                self.logger.error("Erro ao conectar ao proxy: %s", e)
+                return
+
             self.socket.start_tls(rsa.generate_private_key(backend=default_backend()))
         else:
-            self.use_proxy = False  # Disable proxy usage if list is empty
-            print("Lista de proxies vazia!")  # Print error message
+            self.logger.warning("Lista de proxies vazia!")
+            self.use_proxy = False
 
-        # Adicione uma lista de hops para o nó
-        self.hops = []
-        for i in range(1, 10):
-            self.hops.append(random.randint(1, 255))
+        # Conecta-se aos hops restantes
+        if self.hops:
+            for hop in self.hops:
+                self.logger.info("Conectando-se ao hop: %s", hop)
+                try:
+                    self.socket.connect((str(hop), 80))
+                except socket.error as e:
+                    self.logger.error("Erro ao conectar ao hop: %s", e)
+                    return
+        else:
+            self.logger.warning("Nenhum hop disponível!")
 
-        # Selecione um hop aleatório
-        hop = self.select_random_hop()
+    def handle_handshake_message(self, message):
+        self.send(message.create_handshake())
 
-        # Conecte-se ao hop
-        self.connect_to_hop(hop)
+    def handle_data_message(self, message):
+        self.logger.info("Mensagem recebida do hop anterior: %s", message.data)
 
-    def select_random_hop(self):
-        return random.choice(self.hops)
 
-    def connect_to_hop(self, hop):
-        print("Conectando-se ao hop " + str(hop))
-        self.socket.connect((str(hop), 80))
+class Message(Message):
 
-        # Use um protocolo de criptografia de ponta a ponta
-        cipher = Cipher(algorithms.AES(self.socket.get_cipher().get_shared_key()), modes.GCM(self.socket.get_cipher().get_iv()))
-        self.socket.cipher = cipher
-        self.socket.sendall(cipher.encrypt(b"Hello, world!"))
+    TYPE_HANDSHAKE = 1
+    TYPE_DATA = 2
 
-        # Use um algoritmo de hash seguro
-        hash_algorithm = SHA256()
+    logger = logging.getLogger(__name__)
 
-        # Use um esquema de assinatura digital
-        key = rsa.generate_private_key(backend=default_backend())
-        signature = key.sign(hash_algorithm.digest(b"Hello, world!"))
+    def __init__(self, type=None, sender_id=None, data=None):
+        super().__init__(type, sender_id, data)
 
-        # Envie o hash e a assinatura
-        self.socket.sendall(hash_algorithm.digest(b"Hello, world!"))
-        self.socket.sendall(signature)
+        if type not in (self.TYPE_HANDSHAKE, self.TYPE_DATA):
+            self.logger.error("Tipo de mensagem inválido")
 
-        # Receba o hash e a assinatura do hop
-        hash_received = self.socket.recv(hash_algorithm.digest_size)
-        signature_received = self.socket.recv(key.size_in_bytes())
+    def to_bytes(self):
+        data = struct.pack("!I", self.type)
+        data += struct.pack("!I", self.sender_id)
+        if self.data:
+            data += self.data.encode()
+        return data
 
-        # Verifique a assinatura
-        if not key.verify(hash_received, signature_received):
-            raise Exception("Assinatura inválida")
+    @classmethod
+    def from_bytes(cls, data):
+        message = cls()
+        message.type = struct.unpack("!I", data[:4])[0]
+        message.sender_id = struct.unpack("!I", data[4:8])[0]
+        if len(data) > 8:
+            message.data = data[8:].decode()
+        return message
 
-        # A comunicação é segura
-        print("Comunicação segura")
-      
+
+def main():
+    node = Node("127.0.0.1", 80)
+    node.connect()
+
+    message = Message(type=Message.TYPE_HANDSHAKE, sender_id=1)
+    node.send(message)
+
+    message = node.receive()
+
+    print(message.data)
+
+    node.disconnect()
+
+
+if __name__ == "__main__":
+    main()
