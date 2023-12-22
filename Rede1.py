@@ -1,6 +1,5 @@
 import socket
 import paramiko
-import cryptography
 
 class Node:
     def __init__(self, ip, port):
@@ -9,17 +8,15 @@ class Node:
         self.connections = []
 
     def send(self, data):
-        for connection in self.connections:
-            connection.sendall(data)
+        for conn in self.connections:
+            conn.send(data)
 
     def receive(self):
-        data = b""
-        while True:
-            chunk = self.socket.recv(1024)
-            if chunk == b"":
-                break
-            data += chunk
-        return data.decode()
+        for conn in self.connections:
+            data = conn.receive()
+            if data:
+                return data
+        return None
 
 def main():
     # Cria o servidor
@@ -51,8 +48,6 @@ def main():
         node.socket = paramiko.Transport(node.socket)
         node.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
 
-# type ssh-keygen -t rsa -b 4096 -f my-secret-key
-        
         # Busca um destino aleatório
         if len(nodes) > 1:
             destination = nodes[random.randint(0, len(nodes) - 1)]
@@ -70,3 +65,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
