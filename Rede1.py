@@ -2,21 +2,38 @@ import socket
 import paramiko
 
 class Node:
-    def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
-        self.connections = []
+   def __init__(self, ip, port):
+       self.ip = ip
+       self.port = port
+       self.connections = []
+       self.proxy_list = ["127.0.0.1:8080", "127.0.0.1:8081", "127.0.0.1:8082"]  # Added proxy list
+       self.use_proxy = False  # Added proxy usage flag
 
-    def send(self, data):
-        for conn in self.connections:
-            conn.send(data)
+   def send(self, data):
+       for conn in self.connections:
+           conn.send(data)
 
-    def receive(self):
-        for conn in self.connections:
-            data = conn.receive()
-            if data:
-                return data
-        return None
+   def receive(self):  # Added receive method
+       for conn in self.connections:
+           data = conn.receive()
+           if data:
+               return data
+       return None
+
+   def select_random_proxy(self):  # Added proxy selection method
+       return random.choice(self.proxy_list)
+
+   def connect(self):  # Modified connect method to handle proxy usage
+       if self.use_proxy:
+           proxy = self.select_random_proxy()
+           sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+           sock.connect((proxy, 80))
+           self.socket = paramiko.Transport(sock)
+           self.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
+       else:
+           self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+           self.socket.connect((self.ip, self.port))
+
 
 def main():
     # Cria o servidor
