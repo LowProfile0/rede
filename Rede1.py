@@ -1,39 +1,44 @@
 import socket
 import paramiko
+import random
 
 class Node:
-   def __init__(self, ip, port):
-       self.ip = ip
-       self.port = port
-       self.connections = []
-       self.proxy_list = ["127.0.0.1:8080", "127.0.0.1:8081", "127.0.0.1:8082"]  # Added proxy list
-       self.use_proxy = False  # Added proxy usage flag
+    def __init__(self, ip, port):
+        self.ip = ip
+        self.port = port
+        self.connections = []
+        self.proxy_list = []  # Initialize empty proxy list
+        self.use_proxy = True  # Enable proxy usage by default
 
-   def send(self, data):
-       for conn in self.connections:
-           conn.send(data)
+    def load_proxy_list(self, filename):
+        with open(filename, "r") as f:
+            self.proxy_list = f.readlines()
+            self.proxy_list = [line.strip() for line in self.proxy_list]
 
-   def receive(self):  # Added receive method
-       for conn in self.connections:
-           data = conn.receive()
-           if data:
-               return data
-       return None
+    def send(self, data):
+        for conn in self.connections:
+            conn.send(data)
 
-   def select_random_proxy(self):  # Added proxy selection method
-       return random.choice(self.proxy_list)
+    def receive(self):
+        for conn in self.connections:
+            data = conn.receive()
+            if data:
+                return data
+        return None
 
-   def connect(self):  # Modified connect method to handle proxy usage
-       if self.use_proxy:
-           proxy = self.select_random_proxy()
-           sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-           sock.connect((proxy, 80))
-           self.socket = paramiko.Transport(sock)
-           self.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
-       else:
-           self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-           self.socket.connect((self.ip, self.port))
+    def select_random_proxy(self):
+        return random.choice(self.proxy_list)
 
+    def connect(self):
+        if self.use_proxy:
+            proxy = self.select_random_proxy()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((proxy, 80))  # Assuming proxies listen on port 80
+            self.socket = paramiko.Transport(sock)
+            self.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
+        else:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.ip, self.port))
 
 def main():
     # Cria o servidor
@@ -44,12 +49,18 @@ def main():
     # Lista de nós
     nodes = []
 
+    # Load proxy list from file
+    with open("proxy_list.txt", "r") as f:
+        proxy_list = f.readlines()
+        proxy_list = [line.strip() for line in proxy_list]
+
     while True:
         # Aceita uma conexão
         conn, addr = server.accept()
 
         # Cria um novo nó
         node = Node(addr[0], addr[1])
+        node.load_proxy_list("proxy_list.txt")  # Load proxies for each node
         nodes.append(node)
 
         # Adiciona a conexão ao nó
@@ -62,8 +73,7 @@ def main():
         node.ip = str(random.randint(1, 255)) + "." + str(random.randint(1, 255)) + "." + str(random.randint(1, 255)) + "." + str(random.randint(1, 255))
 
         # Criptografa a conexão
-        node.socket = paramiko.Transport(node.socket)
-        node.socket.start_tls(paramiko.RSAKey.from_private_key_file("my-secret-key"))
+        node.connect()  # Call connect to establish connection (with or without proxy)
 
         # Busca um destino aleatório
         if len(nodes) > 1:
@@ -82,4 +92,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
