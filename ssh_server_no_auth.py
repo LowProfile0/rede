@@ -1,4 +1,4 @@
-# Importa as bibliotecas necessárias
+# salve em usr/share/metasploit-framework/modules/exploits/multi/handler/my_program.py
 import socket
 import paramiko
 import cryptography
